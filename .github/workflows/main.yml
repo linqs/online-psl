@@ -39,7 +39,7 @@ jobs:
 
   deploy:
 
-    needs: [build-test, style-lint]
+    needs: [build-test]
 
     runs-on: ubuntu-20.04
 
