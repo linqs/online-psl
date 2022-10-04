@@ -76,7 +76,8 @@ jobs:
           OSSRH_JIRA_USERNAME: ${{ secrets.OSSRH_JIRA_USERNAME }}
           OSSRH_JIRA_PASSWORD: ${{ secrets.OSSRH_JIRA_PASSWORD }}
           GPG_KEY_NAME: ${{ secrets.GPG_KEY_NAME }}
-        run: echo "TEST - TODO: " ./.ci/deploy-test-artifacts.sh
+        # run: ./.ci/deploy-test-artifacts.sh
+        run: date
 
       - name: Deploy Production Artifacts
         if: ${{ startsWith(github.ref, 'refs/tags/') }}
@@ -84,4 +85,5 @@ jobs:
           OSSRH_JIRA_USERNAME: ${{ secrets.OSSRH_JIRA_USERNAME }}
           OSSRH_JIRA_PASSWORD: ${{ secrets.OSSRH_JIRA_PASSWORD }}
           GPG_KEY_NAME: ${{ secrets.GPG_KEY_NAME }}
-        run: echo "TEST - TODO: " ./.ci/deploy-prod-artifacts.sh
+        # run: ./.ci/deploy-prod-artifacts.sh
+        run: date
