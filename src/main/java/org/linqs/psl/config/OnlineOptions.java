@@ -40,6 +40,14 @@ public class OnlineOptions {
         + " If negative, the first read partition in the database will be used."
     );
 
+    public static final Option PARTIAL_GROUNDING_POWERSET = new Option(
+        "partialgrounding.powerset",
+        false,
+        "Whether or not to iterate over the powerset of partial targets during a partial grounding."
+        + " If true the partial grounding will result in no regret in the inference. "
+        + " If false an approximation will be made such that only one atom in a ground rule can come from a special partition."
+    );
+
     static {
         Options.addClassOptions(OnlineOptions.class);
     }
