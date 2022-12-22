@@ -18,6 +18,8 @@
 package org.linqs.psl.cli;
 
 import org.linqs.psl.application.inference.online.messages.responses.OnlineResponse;
+import org.linqs.psl.config.Config;
+import org.linqs.psl.config.RuntimeOptions;
 import org.linqs.psl.util.FileUtils;
 import org.linqs.psl.util.Logger;
 
@@ -34,6 +36,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
+import java.util.Properties;
 
 /**
  * A client interface to online PSL.
@@ -42,6 +45,7 @@ public class OnlineClientLauncher {
     public static final String OPTION_HELP = "h";
     public static final String OPTION_HELP_LONG = "help";
     public static final String OPTION_ONLINE_SERVER_RESPONSE_OUTPUT = "onlineServerOutput";
+    public static final String OPTION_PROPERTIES = "D";
 
     private static final Logger log = Logger.getLogger(OnlineClientLauncher.class);
     private CommandLine parsedOptions;
@@ -95,11 +99,21 @@ public class OnlineClientLauncher {
                 .desc("Print this help message and exit")
                 .build());
 
-
         options.addOption(Option.builder(OPTION_ONLINE_SERVER_RESPONSE_OUTPUT)
                 .desc("Optional file path for writing online server responses to filesystem (default is STDOUT)")
                 .hasArg()
                 .argName("path")
+                .build());
+
+        options.addOption(Option.builder(OPTION_PROPERTIES)
+                .argName("name=value")
+                .desc("Directly specify PSL properties (overrides options set via --" + ")." +
+                        " See https://github.com/linqs/psl/wiki/Configuration-Options for a list of available options." +
+                        " Log4j properties (properties starting with 'log4j') will be passed to the logger." +
+                        " 'log4j.threshold=DEBUG', for example, will be passed to log4j and set the global logging threshold.")
+                .hasArg()
+                .numberOfArgs(2)
+                .valueSeparator('=')
                 .build());
 
         return options;
@@ -122,6 +136,15 @@ public class OnlineClientLauncher {
         if (printHelp || parsedOptions.hasOption(OPTION_HELP)) {
             HelpFormatter helpFormatter = new HelpFormatter();
             helpFormatter.printHelp("online-client", options, true);
+            System.exit(0);
+        }
+
+        // Look specially for the logging level.
+        if (parsedOptions.hasOption(CommandLineLoader.OPTION_PROPERTIES)) {
+            Properties props = parsedOptions.getOptionProperties(CommandLineLoader.OPTION_PROPERTIES);
+            for (String key : props.stringPropertyNames()) {
+                Config.setProperty(key, props.getProperty(key));
+            }
         }
 
         return parsedOptions;
@@ -136,6 +159,10 @@ public class OnlineClientLauncher {
             CommandLine parsedOptions = getCommandLineOptions(args);
             if (parsedOptions == null) {
                 return;
+            }
+
+            if (RuntimeOptions.LOG_LEVEL.isSet()) {
+                Logger.setLevel(RuntimeOptions.LOG_LEVEL.getString());
             }
 
             OnlineClientLauncher client = new OnlineClientLauncher(parsedOptions);
