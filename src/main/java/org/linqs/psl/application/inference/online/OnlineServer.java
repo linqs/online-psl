@@ -92,7 +92,8 @@ public class OnlineServer {
      * ready to accept client connections and online actions.
      */
     private void createServerTempFile() {
-        String tempDirectory = SystemUtils.getTempDir(TEMP_FILE_DIR_PREFIX);
+        // HACK(Charles): Forcing tmp directory for consistency.
+        String tempDirectory = "/tmp/" + TEMP_FILE_DIR_PREFIX;
         FileUtils.mkdir(tempDirectory);
 
         tempFile = new File(new File(tempDirectory), TEMP_FILE_NAME);

@@ -47,7 +47,7 @@ public abstract class CLITest {
     public static final String BASE_DATA_DIR_NAME = "data";
     public static final String BASE_MODELS_DIR_NAME = "models";
     public static final String BASE_ONLINE_ACTIONS_DIR_NAME = "onlineActions";
-    public static final String SERVER_TEMP_FILE_PATH = Paths.get(SystemUtils.getTempDir(OnlineServer.TEMP_FILE_DIR_PREFIX), OnlineServer.TEMP_FILE_NAME).toString();
+    public static final String SERVER_TEMP_FILE_PATH = Paths.get("/tmp", OnlineServer.TEMP_FILE_DIR_PREFIX, OnlineServer.TEMP_FILE_NAME).toString();
 
     protected final String outDir;
     protected final String resourceDir;
