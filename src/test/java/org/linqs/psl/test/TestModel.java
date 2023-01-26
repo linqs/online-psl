@@ -127,19 +127,19 @@ public class TestModel {
         rules.add(new WeightedLogicalRule(
                 new Implication(
                     new Conjunction(
-                        new QueryAtom(predicates.get("Person"), new Variable("X")),
-                        new QueryAtom(predicates.get("Person"), new Variable("Y")),
-                        new QueryAtom(predicates.get("Friends"), new Variable("X"), new Variable("Y")),
-                        new QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("X"), new Variable("Y"))
+                        new QueryAtom(predicates.get("Person"), new Variable("A")),
+                        new QueryAtom(predicates.get("Person"), new Variable("B")),
+                        new QueryAtom(predicates.get("Friends"), new Variable("A"), new Variable("B")),
+                        new QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("A"), new Variable("B"))
                     ),
-                    new QueryAtom(predicates.get("Friends"), new Variable("Y"), new Variable("X"))
+                    new QueryAtom(predicates.get("Friends"), new Variable("B"), new Variable("A"))
                 ),
                 10.0f,
                 true));
 
         rules.add(new WeightedLogicalRule(
                 new Negation(
-                    new QueryAtom(predicates.get("Friends"), new Variable("I"), new Variable("J"))
+                    new QueryAtom(predicates.get("Friends"), new Variable("A"), new Variable("B"))
                 ),
                 1.0f,
                 true));

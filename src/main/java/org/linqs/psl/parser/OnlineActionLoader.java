@@ -31,6 +31,7 @@ import org.linqs.psl.application.inference.online.messages.actions.controls.Sync
 import org.linqs.psl.application.inference.online.messages.actions.controls.WriteInferredPredicates;
 import org.linqs.psl.application.inference.online.messages.actions.model.AddAtom;
 import org.linqs.psl.application.inference.online.messages.actions.model.DeleteAtom;
+import org.linqs.psl.application.inference.online.messages.actions.model.FixAtom;
 import org.linqs.psl.application.inference.online.messages.actions.model.GetAtom;
 import org.linqs.psl.application.inference.online.messages.actions.model.ObserveAtom;
 import org.linqs.psl.application.inference.online.messages.actions.model.UpdateObservation;
@@ -55,6 +56,7 @@ import org.linqs.psl.parser.antlr.OnlinePSLParser.DeleteAtomContext;
 import org.linqs.psl.parser.antlr.OnlinePSLParser.ExitContext;
 import org.linqs.psl.parser.antlr.OnlinePSLParser.GetAtomContext;
 import org.linqs.psl.parser.antlr.OnlinePSLParser.NumberContext;
+import org.linqs.psl.parser.antlr.OnlinePSLParser.FixAtomContext;
 import org.linqs.psl.parser.antlr.OnlinePSLParser.ObserveAtomContext;
 import org.linqs.psl.parser.antlr.OnlinePSLParser.OnlineProgramContext;
 import org.linqs.psl.parser.antlr.OnlinePSLParser.UpdateObservationContext;
@@ -169,6 +171,8 @@ public class OnlineActionLoader extends OnlinePSLBaseVisitor<Object> {
             return visitExit(ctx.exit());
         } else if (ctx.observeAtom() != null) {
             return visitObserveAtom(ctx.observeAtom());
+        } else if (ctx.fixAtom() != null) {
+            return visitFixAtom(ctx.fixAtom());
         } else if (ctx.getAtom() != null) {
             return visitGetAtom(ctx.getAtom());
         } else if (ctx.stop() != null) {
@@ -221,6 +225,17 @@ public class OnlineActionLoader extends OnlinePSLBaseVisitor<Object> {
         float value = visitNumber(ctx.number());
 
         return new ObserveAtom((StandardPredicate)atom.getPredicate(), constants, value);
+    }
+
+    @Override
+    public FixAtom visitFixAtom(FixAtomContext ctx) {
+        Atom atom = ModelLoader.loadAtom(ctx.atom().getText());
+        Constant[] constants = new Constant[atom.getArguments().length];
+        for (int i = 0; i < constants.length; i++) {
+            constants[i] = (Constant)atom.getArguments()[i];
+        }
+
+        return new FixAtom((StandardPredicate)atom.getPredicate(), constants);
     }
 
     @Override

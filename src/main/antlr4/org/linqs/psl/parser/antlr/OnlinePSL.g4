@@ -26,6 +26,7 @@ action
     :   addAtom
     |   deleteAtom
     |   observeAtom
+    |   fixAtom
     |   updateObservation
     |   getAtom
     |   addRule
@@ -68,6 +69,10 @@ exit
 
 observeAtom
     :   OBSERVE_ATOM atom number
+    ;
+
+fixAtom
+    :   FIX_ATOM atom
     ;
 
 getAtom
@@ -125,6 +130,10 @@ EXIT
 
 GET_ATOM
     :   G E T A T O M
+    ;
+
+FIX_ATOM
+    :   F I X A T O M
     ;
 
 OBSERVE_ATOM

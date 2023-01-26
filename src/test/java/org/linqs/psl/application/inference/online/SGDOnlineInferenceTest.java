@@ -23,6 +23,7 @@ import org.linqs.psl.application.inference.online.messages.actions.controls.Stop
 import org.linqs.psl.application.inference.online.messages.actions.controls.Sync;
 import org.linqs.psl.application.inference.online.messages.actions.model.AddAtom;
 import org.linqs.psl.application.inference.online.messages.actions.model.DeleteAtom;
+import org.linqs.psl.application.inference.online.messages.actions.model.FixAtom;
 import org.linqs.psl.application.inference.online.messages.actions.model.GetAtom;
 import org.linqs.psl.application.inference.online.messages.actions.model.ObserveAtom;
 import org.linqs.psl.application.inference.online.messages.actions.model.UpdateObservation;
@@ -31,9 +32,12 @@ import org.linqs.psl.application.inference.online.messages.actions.template.AddR
 import org.linqs.psl.application.inference.online.messages.actions.template.DeactivateRule;
 import org.linqs.psl.application.inference.online.messages.actions.template.DeleteRule;
 import org.linqs.psl.application.inference.online.messages.responses.ActionStatus;
+import org.linqs.psl.application.inference.online.messages.responses.GetAtomResponse;
 import org.linqs.psl.application.inference.online.messages.responses.OnlineResponse;
 import org.linqs.psl.config.Options;
 import org.linqs.psl.database.Database;
+import org.linqs.psl.evaluation.statistics.Evaluator;
+import org.linqs.psl.model.atom.QueryAtom;
 import org.linqs.psl.model.formula.Conjunction;
 import org.linqs.psl.model.formula.Implication;
 import org.linqs.psl.model.formula.Negation;
@@ -42,6 +46,7 @@ import org.linqs.psl.model.predicate.StandardPredicate;
 import org.linqs.psl.model.rule.Rule;
 import org.linqs.psl.model.rule.arithmetic.WeightedArithmeticRule;
 import org.linqs.psl.model.rule.arithmetic.expression.ArithmeticRuleExpression;
+import org.linqs.psl.model.rule.arithmetic.expression.SummationAtomOrAtom;
 import org.linqs.psl.model.rule.arithmetic.expression.coefficient.Coefficient;
 import org.linqs.psl.model.rule.arithmetic.expression.coefficient.ConstantNumber;
 import org.linqs.psl.model.rule.logical.WeightedLogicalRule;
@@ -59,17 +64,22 @@ import org.junit.Test;
 
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
 public class SGDOnlineInferenceTest extends PSLBaseTest {
     private TestModel.ModelInformation modelInfo;
+    private Evaluator evaluator;
     private Database inferDB;
+    private Database truthDB;
     private OnlineInferenceThread onlineInferenceThread;
 
     public SGDOnlineInferenceTest() {
         modelInfo = null;
         inferDB = null;
+        truthDB = null;
+        evaluator = null;
         onlineInferenceThread = null;
     }
 
@@ -82,6 +92,9 @@ public class SGDOnlineInferenceTest extends PSLBaseTest {
 
         inferDB = modelInfo.dataStore.getDatabase(modelInfo.targetPartition,
                 new HashSet<StandardPredicate>(), modelInfo.observationPartition);
+        truthDB = modelInfo.dataStore.getDatabase(modelInfo.truthPartition,
+                new HashSet<StandardPredicate>(modelInfo.predicates.values()));
+        evaluator = (Evaluator)Options.WLA_EVAL.getNewObject();
 
         // Start up inference on separate thread.
         onlineInferenceThread = new OnlineInferenceThread();
@@ -224,6 +237,7 @@ public class SGDOnlineInferenceTest extends PSLBaseTest {
      * 1. Add an atom with predicates and arguments that already exists in the model but with a different partition.
      * 2. Delete and then Add an atom.
      * 3. Using the Observe action for random variables and observations respectively. (preferred).
+     * 4. Fixing a random variable atom.
      * */
     @Test
     public void testChangeAtomPartition() {
@@ -261,6 +275,21 @@ public class SGDOnlineInferenceTest extends PSLBaseTest {
         commands.add(new Exit());
 
         OnlineTest.assertAtomValues(commands, values);
+
+        // Reset model.
+        cleanup();
+        setup();
+
+        // Fix a RandomVariableAtom.
+        commands.add(new GetAtom(StandardPredicate.get("Friends"), new Constant[]{new UniqueStringID("Alice"), new UniqueStringID("Bob")}));
+        commands.add(new Exit());
+        List<OnlineResponse> onlineResponses = OnlineTest.clientSession(commands);
+        values[0] = ((GetAtomResponse)(onlineResponses.get(0))).getAtomValue();
+        commands.add(new FixAtom(StandardPredicate.get("Friends"), new Constant[]{new UniqueStringID("Alice"), new UniqueStringID("Bob")}));
+        commands.add(new GetAtom(StandardPredicate.get("Friends"), new Constant[]{new UniqueStringID("Alice"), new UniqueStringID("Bob")}));
+        commands.add(new Exit());
+
+        OnlineTest.assertAtomValues(commands, values);
     }
 
     /**
@@ -272,7 +301,7 @@ public class SGDOnlineInferenceTest extends PSLBaseTest {
         Rule newRule = new WeightedArithmeticRule(
                 new ArithmeticRuleExpression(
                         Arrays.asList((Coefficient) (new ConstantNumber(1))),
-                        Arrays.asList(new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B"))),
+                        Arrays.asList(new QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B"))),
                         FunctionComparator.EQ, new ConstantNumber(1)
                 ),
                 1000.0f, false);
@@ -325,29 +354,29 @@ public class SGDOnlineInferenceTest extends PSLBaseTest {
         Rule niceRule = new WeightedLogicalRule(
                 new Implication(
                         new Conjunction(
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Nice"), new Variable("A")),
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Nice"), new Variable("B")),
-                                new org.linqs.psl.model.atom.QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("A"), new Variable("B"))
+                                new QueryAtom(StandardPredicate.get("Nice"), new Variable("A")),
+                                new QueryAtom(StandardPredicate.get("Nice"), new Variable("B")),
+                                new QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("A"), new Variable("B"))
                         ),
-                        new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B"))
+                        new QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B"))
                 ),
                 0.5f, true);
 
         Rule friendsRule = new WeightedLogicalRule(
                 new Implication(
                         new Conjunction(
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Person"), new Variable("X")),
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Person"), new Variable("Y")),
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Friends"), new Variable("X"), new Variable("Y")),
-                                new org.linqs.psl.model.atom.QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("X"), new Variable("Y"))
+                                new QueryAtom(StandardPredicate.get("Person"), new Variable("A")),
+                                new QueryAtom(StandardPredicate.get("Person"), new Variable("B")),
+                                new QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B")),
+                                new QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("A"), new Variable("B"))
                         ),
-                        new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Friends"), new Variable("Y"), new Variable("X"))
+                        new QueryAtom(StandardPredicate.get("Friends"), new Variable("B"), new Variable("A"))
                 ),
                 10.0f, true);
 
         Rule negativePriorRule = new WeightedLogicalRule(
                 new Negation(
-                        new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Friends"), new Variable("I"), new Variable("J"))
+                        new QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B"))
                 ),
                 1.0f, true);
 
@@ -380,12 +409,12 @@ public class SGDOnlineInferenceTest extends PSLBaseTest {
         Rule newRule = new WeightedLogicalRule(
                 new Implication(
                         new Conjunction(
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Person"), new Variable("A")),
-                                new Negation(new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Nice"), new Variable("A"))),
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Person"), new Variable("B")),
-                                new org.linqs.psl.model.atom.QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("A"), new Variable("B"))
+                                new QueryAtom(StandardPredicate.get("Person"), new Variable("A")),
+                                new Negation(new QueryAtom(StandardPredicate.get("Nice"), new Variable("A"))),
+                                new QueryAtom(StandardPredicate.get("Person"), new Variable("B")),
+                                new QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("A"), new Variable("B"))
                         ),
-                        new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B"))
+                        new QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B"))
                 ),
                 100.0f, true);
 
@@ -447,29 +476,29 @@ public class SGDOnlineInferenceTest extends PSLBaseTest {
         Rule niceRule = new WeightedLogicalRule(
                 new Implication(
                         new Conjunction(
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Nice"), new Variable("A")),
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Nice"), new Variable("B")),
-                                new org.linqs.psl.model.atom.QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("A"), new Variable("B"))
+                                new QueryAtom(StandardPredicate.get("Nice"), new Variable("A")),
+                                new QueryAtom(StandardPredicate.get("Nice"), new Variable("B")),
+                                new QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("A"), new Variable("B"))
                         ),
-                        new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B"))
+                        new QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B"))
                 ),
                 5.0f, true);
 
         Rule friendsRule = new WeightedLogicalRule(
                 new Implication(
                         new Conjunction(
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Person"), new Variable("X")),
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Person"), new Variable("Y")),
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Friends"), new Variable("X"), new Variable("Y")),
-                                new org.linqs.psl.model.atom.QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("X"), new Variable("Y"))
+                                new QueryAtom(StandardPredicate.get("Person"), new Variable("A")),
+                                new QueryAtom(StandardPredicate.get("Person"), new Variable("B")),
+                                new QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B")),
+                                new QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("A"), new Variable("B"))
                         ),
-                        new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Friends"), new Variable("Y"), new Variable("X"))
+                        new QueryAtom(StandardPredicate.get("Friends"), new Variable("B"), new Variable("A"))
                 ),
                 10.0f, true);
 
         Rule negativePriorRule = new WeightedLogicalRule(
                 new Negation(
-                        new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Friends"), new Variable("I"), new Variable("J"))
+                        new QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B"))
                 ),
                 1.0f, true);
 
@@ -498,29 +527,29 @@ public class SGDOnlineInferenceTest extends PSLBaseTest {
         Rule niceRule = new WeightedLogicalRule(
                 new Implication(
                         new Conjunction(
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Nice"), new Variable("A")),
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Nice"), new Variable("B")),
-                                new org.linqs.psl.model.atom.QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("A"), new Variable("B"))
+                                new QueryAtom(StandardPredicate.get("Nice"), new Variable("A")),
+                                new QueryAtom(StandardPredicate.get("Nice"), new Variable("B")),
+                                new QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("A"), new Variable("B"))
                         ),
-                        new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B"))
+                        new QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B"))
                 ),
                 5.0f, true);
 
         Rule friendsRule = new WeightedLogicalRule(
                 new Implication(
                         new Conjunction(
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Person"), new Variable("X")),
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Person"), new Variable("Y")),
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Friends"), new Variable("X"), new Variable("Y")),
-                                new org.linqs.psl.model.atom.QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("X"), new Variable("Y"))
+                                new QueryAtom(StandardPredicate.get("Person"), new Variable("A")),
+                                new QueryAtom(StandardPredicate.get("Person"), new Variable("B")),
+                                new QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B")),
+                                new QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("A"), new Variable("B"))
                         ),
-                        new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Friends"), new Variable("Y"), new Variable("X"))
+                        new QueryAtom(StandardPredicate.get("Friends"), new Variable("B"), new Variable("A"))
                 ),
                 10.0f, true);
 
         Rule negativePriorRule = new WeightedLogicalRule(
                 new Negation(
-                        new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Friends"), new Variable("I"), new Variable("J"))
+                        new QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B"))
                 ),
                 1.0f, true);
 
@@ -561,29 +590,29 @@ public class SGDOnlineInferenceTest extends PSLBaseTest {
         Rule niceRule = new WeightedLogicalRule(
                 new Implication(
                         new Conjunction(
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Nice"), new Variable("A")),
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Nice"), new Variable("B")),
-                                new org.linqs.psl.model.atom.QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("A"), new Variable("B"))
+                                new QueryAtom(StandardPredicate.get("Nice"), new Variable("A")),
+                                new QueryAtom(StandardPredicate.get("Nice"), new Variable("B")),
+                                new QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("A"), new Variable("B"))
                         ),
-                        new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B"))
+                        new QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B"))
                 ),
                 0.5f, true);
 
         Rule friendsRule = new WeightedLogicalRule(
                 new Implication(
                         new Conjunction(
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Person"), new Variable("X")),
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Person"), new Variable("Y")),
-                                new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Friends"), new Variable("X"), new Variable("Y")),
-                                new org.linqs.psl.model.atom.QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("X"), new Variable("Y"))
+                                new QueryAtom(StandardPredicate.get("Person"), new Variable("A")),
+                                new QueryAtom(StandardPredicate.get("Person"), new Variable("B")),
+                                new QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B")),
+                                new QueryAtom(GroundingOnlyPredicate.NotEqual, new Variable("A"), new Variable("B"))
                         ),
-                        new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Friends"), new Variable("Y"), new Variable("X"))
+                        new QueryAtom(StandardPredicate.get("Friends"), new Variable("B"), new Variable("A"))
                 ),
                 10.0f, true);
 
         Rule negativePriorRule = new WeightedLogicalRule(
                 new Negation(
-                        new org.linqs.psl.model.atom.QueryAtom(StandardPredicate.get("Friends"), new Variable("I"), new Variable("J"))
+                        new QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B"))
                 ),
                 1.0f, true);
 
@@ -598,6 +627,49 @@ public class SGDOnlineInferenceTest extends PSLBaseTest {
         OnlineTest.assertAtomValues(commands, new double[] {1.0});
     }
 
+    /**
+     * Test online operations with arithmetic block rules.
+     */
+    @Test
+    public void testArithmeticBlocks() {
+        BlockingQueue<OnlineMessage> commands = new LinkedBlockingQueue<OnlineMessage>();
+
+        List<Coefficient> coefficients = Arrays.asList(
+                (Coefficient)(new ConstantNumber(1.0f)),
+                (Coefficient)(new ConstantNumber(-1.0f)),
+                (Coefficient)(new ConstantNumber(0.0f)),
+                (Coefficient)(new ConstantNumber(0.0f))
+        );
+        List<SummationAtomOrAtom> atoms =  Arrays.asList(
+                (SummationAtomOrAtom)(new QueryAtom(StandardPredicate.get("Friends"), new Variable("A"), new Variable("B"))),
+                (SummationAtomOrAtom)(new QueryAtom(StandardPredicate.get("Friends"), new Variable("B"), new Variable("A"))),
+                (SummationAtomOrAtom)(new QueryAtom(StandardPredicate.get("Nice"), new Variable("A"))),
+                (SummationAtomOrAtom)(new QueryAtom(StandardPredicate.get("Nice"), new Variable("B")))
+        );
+
+        // Add rule: 10.0: Friends(A, B) - Friends(B, A) + 0.0 Nice(B) + 0.0 Nice(A) = 0.0 ^2
+        Rule arithmeticRule = new WeightedArithmeticRule(
+                new ArithmeticRuleExpression(coefficients, atoms, FunctionComparator.EQ, new ConstantNumber(0.0f)),
+                10.0f, true
+        );
+
+        // Delete rule to simulate adding an unregistered rule on the server.
+        arithmeticRule.unregister();
+
+        // Test expected response.
+        AddRule addRule = new AddRule(arithmeticRule);
+        Exit exit = new Exit();
+        commands.add(addRule);
+        commands.add(exit);
+
+        OnlineResponse[] expectedResponses = new OnlineResponse[2];
+        expectedResponses[0] = new ActionStatus(addRule, true,
+                String.format("Added rule: %s", addRule.getRule().toString()));
+        expectedResponses[1] = new ActionStatus(exit, true, "Session Closed.");
+
+        OnlineTest.assertServerResponse(commands, expectedResponses);
+    }
+
     private class OnlineInferenceThread extends Thread {
         SGDOnlineInference onlineInference;
 
@@ -607,7 +679,7 @@ public class SGDOnlineInferenceTest extends PSLBaseTest {
 
         @Override
         public void run() {
-            onlineInference.inference(false, false);
+            onlineInference.inference(false, false, Arrays.asList(evaluator), truthDB);
         }
 
         public void close() {

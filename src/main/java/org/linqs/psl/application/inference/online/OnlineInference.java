@@ -24,6 +24,7 @@ import org.linqs.psl.application.inference.online.messages.actions.controls.Sync
 import org.linqs.psl.application.inference.online.messages.actions.controls.WriteInferredPredicates;
 import org.linqs.psl.application.inference.online.messages.actions.model.AddAtom;
 import org.linqs.psl.application.inference.online.messages.actions.model.DeleteAtom;
+import org.linqs.psl.application.inference.online.messages.actions.model.FixAtom;
 import org.linqs.psl.application.inference.online.messages.actions.model.GetAtom;
 import org.linqs.psl.application.inference.online.messages.actions.model.ObserveAtom;
 import org.linqs.psl.application.inference.online.messages.actions.model.UpdateObservation;
@@ -122,6 +123,8 @@ public abstract class OnlineInference extends InferenceApplication {
             response = doAddAtom((AddAtom)action);
         } else if (action.getClass() == DeleteAtom.class) {
             response = doDeleteAtom((DeleteAtom)action);
+        } else if (action.getClass() == FixAtom.class) {
+            response = doFixAtom((FixAtom)action);
         } else if (action.getClass() == ObserveAtom.class) {
             response = doObserveAtom((ObserveAtom)action);
         } else if (action.getClass() == UpdateObservation.class) {
@@ -159,12 +162,21 @@ public abstract class OnlineInference extends InferenceApplication {
 
         if (action.getPartitionName().equalsIgnoreCase("READ")) {
             atom = ((OnlineAtomManager)atomManager).addObservedAtom(action.getPredicate(), action.getValue(), action.getArguments());
-        } else {
+        } else if (action.getPartitionName().equalsIgnoreCase("WRITE")) {
             atom = ((OnlineAtomManager)atomManager).addRandomVariableAtom(action.getPredicate(), action.getValue(), action.getArguments());
 
             if (trainingMap != null) {
                 trainingMap.addRandomVariableTargetAtom((RandomVariableAtom)atom);
             }
+        } else if (action.getPartitionName().equalsIgnoreCase("TRUTH")) {
+            if (trainingMap != null) {
+                // Todo(cad): Add atom to truth partition of TrainingMap.
+//                trainingMap.addTruthAtom(
+//                        new ObservedAtom(action.getPredicate(), action.getArguments(), action.getValue()),
+//                        ((OnlineAtomManager)atomManager).getOnlineReadPartition());
+            }
+        } else {
+            throw new IllegalArgumentException(String.format("Unrecognized partition: %s", action.getPartitionName()));
         }
 
         ((OnlineTermStore)termStore).createLocalVariable(atom);
@@ -186,6 +198,37 @@ public abstract class OnlineInference extends InferenceApplication {
         return String.format("Deleted atom: %s", atom);
     }
 
+    protected String doFixAtom(FixAtom action) {
+        if (!atomManager.getDatabase().hasAtom(action.getPredicate(), action.getArguments())) {
+            return String.format("Atom: %s(%s) did not exist in atom manager.",
+                    action.getPredicate(), StringUtils.join(", ", action.getArguments()));
+        }
+
+        GroundAtom atom = atomManager.getAtom(action.getPredicate(), action.getArguments());
+        if (!(atom instanceof RandomVariableAtom)) {
+            return String.format("Atom: %s(%s) is already observed.",
+                    action.getPredicate(), StringUtils.join(", ", action.getArguments()));
+        }
+
+        // Execute pending model updates and ensure we're in a MAP state.
+        optimize();
+
+        // Delete then create atom with same predicates, arguments, and value as the random variable atom.
+        deleteAtom(action.getPredicate(), action.getArguments());
+
+        ObservedAtom observedAtom = ((OnlineAtomManager)atomManager).addObservedAtom(
+                action.getPredicate(), atom.getValue(), false, action.getArguments()
+        );
+
+        // Update the TrainingMap.
+        if (trainingMap != null) {
+            // Todo(cad): Add atom to observed target partition of TrainingMap.
+//            trainingMap.addObservedTargetAtom(observedAtom);
+        }
+
+        return String.format("Fixed atom: %s", observedAtom.toStringWithValue());
+    }
+
     protected String doObserveAtom(ObserveAtom action) {
         if (!atomManager.getDatabase().hasAtom(action.getPredicate(), action.getArguments())) {
             return String.format("Atom: %s(%s) does not exist in atom manager.",
@@ -203,6 +246,12 @@ public abstract class OnlineInference extends InferenceApplication {
 
         ObservedAtom observedAtom = ((OnlineAtomManager)atomManager).addObservedAtom(action.getPredicate(), action.getValue(), false, action.getArguments());
         ((OnlineTermStore)termStore).updateLocalVariable(observedAtom, action.getValue());
+
+        // Update the TrainingMap.
+        if (trainingMap != null) {
+            // Todo(cad): Add atom to observed target partition of TrainingMap.
+//            trainingMap.addObservedTargetAtom(observedAtom);
+        }
 
         modelUpdates = true;
         return String.format("Observed atom: %s => %s", atom.toStringWithValue(), observedAtom.toStringWithValue());
@@ -366,12 +415,13 @@ public abstract class OnlineInference extends InferenceApplication {
             }
 
             try {
-                log.trace(String.format("Executing action: %s", action));
+//                log.trace(String.format("Executing action: %s", action));
                 executeAction(action);
             } catch (IllegalArgumentException ex) {
                 server.onActionExecution(action, new ActionStatus(action, false, ex.getMessage()));
             } catch (RuntimeException ex) {
                 server.onActionExecution(action, new ActionStatus(action, false, ex.getMessage()));
+                closeServer();
                 throw new RuntimeException(String.format("Critically failed to execute action: %s", action), ex);
             }
         }
