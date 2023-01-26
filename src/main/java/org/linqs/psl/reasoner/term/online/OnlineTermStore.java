@@ -27,6 +27,7 @@ import org.linqs.psl.reasoner.term.HyperplaneTermGenerator;
 import org.linqs.psl.reasoner.term.ReasonerTerm;
 import org.linqs.psl.reasoner.term.streaming.StreamingIterator;
 import org.linqs.psl.reasoner.term.streaming.StreamingTermStore;
+import org.linqs.psl.util.FileUtils;
 import org.linqs.psl.util.IteratorUtils;
 import org.linqs.psl.util.Logger;
 
@@ -49,10 +50,15 @@ public abstract class OnlineTermStore<T extends ReasonerTerm> extends StreamingT
 
     protected List<Integer> activeTermPages;
     protected List<Integer> activeVolatilePages;
+    protected Map<Integer, Boolean> validTermPages;
+
     protected Integer nextTermPageIndex;
     protected Integer nextVolatilePageIndex;
     protected Map<Rule, List<Integer>> rulePageMapping;
+    protected Map<Integer, Rule> pageRuleMapping;
     protected Map<Rule, Boolean> activatedRules;
+
+    protected Boolean joinIteration;
 
     public OnlineTermStore(List<Rule> rules, AtomManager atomManager,
                            HyperplaneTermGenerator<T, GroundAtom> termGenerator) {
@@ -60,7 +66,9 @@ public abstract class OnlineTermStore<T extends ReasonerTerm> extends StreamingT
 
         activeTermPages = new ArrayList<Integer>();
         activeVolatilePages = new ArrayList<Integer>();
+        validTermPages = new HashMap<Integer, Boolean>(INITIAL_PATH_CACHE_SIZE);
         rulePageMapping = new HashMap<Rule, List<Integer>>();
+        pageRuleMapping = new HashMap<Integer, Rule>();
         activatedRules = new HashMap<Rule, Boolean>();
 
         for (Rule rule : rules) {
@@ -70,6 +78,8 @@ public abstract class OnlineTermStore<T extends ReasonerTerm> extends StreamingT
 
         nextTermPageIndex = 0;
         nextVolatilePageIndex = 0;
+
+        joinIteration = false;
     }
 
     @Override
@@ -170,6 +180,9 @@ public abstract class OnlineTermStore<T extends ReasonerTerm> extends StreamingT
         removeActiveTermPages(rule);
         rules.remove(rule);
         activatedRules.remove(rule);
+        for (int i : rulePageMapping.get(rule)) {
+            pageRuleMapping.remove(i);
+        }
         rulePageMapping.remove(rule);
     }
 
@@ -233,21 +246,39 @@ public abstract class OnlineTermStore<T extends ReasonerTerm> extends StreamingT
     public void addRuleMapping(Rule rule, int pageIndex) {
         buildActivePagePath(pageIndex);
         rulePageMapping.get(rule).add(activeTermPages.get(pageIndex));
+        pageRuleMapping.put(activeTermPages.get(pageIndex), rule);
     }
 
     private void buildActivePagePath(int index) {
         // Make sure the path is built.
-        // This implementation gets the index of the next active term page.
+        // This loop gets the index of the next active term page.
         for (int i = activeTermPages.size(); i <= index; i++) {
+            // Create new term pages.
             termPagePaths.add(Paths.get(pageDir, String.format("%08d_term.page", nextTermPageIndex)).toString());
             activeTermPages.add(nextTermPageIndex);
+            validTermPages.put(nextTermPageIndex, false);
             nextTermPageIndex++;
         }
+
+        validTermPages.put(activeTermPages.get(index), false);
+    }
+
+    public boolean rejectCacheTerm(T term, int pageIndex) {
+        return false;
     }
 
     @Override
     public void groundingIterationComplete(long termCount, int numPages, ByteBuffer termBuffer, ByteBuffer volatileBuffer) {
-        super.groundingIterationComplete(termCount, numPages, termBuffer, volatileBuffer);
+        this.termCount += termCount;
+
+        this.numPages = numPages;
+        this.termBuffer = termBuffer;
+        this.volatileBuffer = volatileBuffer;
+
+        initialRound = false;
+        if (!joinIteration) {
+            activeIterator = null;
+        }
 
         // Deactivate any new pages corresponding to deactivated rules.
         for (Rule rule : rules) {
@@ -266,9 +297,40 @@ public abstract class OnlineTermStore<T extends ReasonerTerm> extends StreamingT
                 this.numPages--;
             }
         }
+
+        validTermPages.clear();
+    }
+
+    @Override
+    public void cacheIterationComplete(long termCount) {
+        this.termCount = termCount;
+
+        if (joinIteration) {
+            validTermPages.clear();
+            return;
+        }
+
+        for (Map.Entry<Integer, Boolean> entry : validTermPages.entrySet()) {
+            if (!entry.getValue()) {
+                // Term page had no valid terms, i.e., only terms with deleted atoms. Delete the page.
+                log.trace(String.format("Removing page: %d at position: %d", entry.getKey(), activeTermPages.indexOf(entry.getKey())));
+                activeTermPages.remove(entry.getKey());
+                if (pageRuleMapping.get(entry.getKey()) != null) {
+                    // Term page was written to disk.
+                    rulePageMapping.get(pageRuleMapping.get(entry.getKey())).remove(entry.getKey());
+                    pageRuleMapping.remove(entry.getKey());
+                    FileUtils.delete(termPagePaths.get(entry.getKey()));
+                }
+                numPages--;
+            }
+        }
+
+        activeIterator = null;
+        validTermPages.clear();
     }
 
     private void joinIterationComplete() {
+        joinIteration = false;
         activeIterator = null;
     }
 
@@ -278,6 +340,7 @@ public abstract class OnlineTermStore<T extends ReasonerTerm> extends StreamingT
 
         // If there are new atoms, then we need to iterate through the cache and new groundings.
         if (!initialRound && ((OnlineAtomManager)atomManager).hasNewAtoms()) {
+            joinIteration = true;
             activeIterator = new StreamingJoinIterator<T>(IteratorUtils.join(activeIterator, getGroundingIterator()));
         }
 

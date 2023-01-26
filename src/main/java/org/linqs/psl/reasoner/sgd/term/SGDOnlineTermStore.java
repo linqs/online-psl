@@ -44,20 +44,20 @@ public class SGDOnlineTermStore extends OnlineTermStore<SGDObjectiveTerm> {
 
     @Override
     public StreamingIterator<SGDObjectiveTerm> getCacheIterator() {
-        return new SGDStreamingCacheIterator(
+        return new SGDOnlineCacheIterator(
                 this, false, termCache, termPool,
                 termBuffer, volatileBuffer, shufflePage, shuffleMap, randomizePageAccess, numPages);
     }
 
     @Override
     public StreamingIterator<SGDObjectiveTerm> getNoWriteIterator() {
-        return new SGDStreamingCacheIterator(
+        return new SGDOnlineCacheIterator(
                 this, true, termCache, termPool,
                 termBuffer, volatileBuffer, shufflePage, shuffleMap, randomizePageAccess, numPages);
     }
 
     @Override
-    public boolean rejectCacheTerm(SGDObjectiveTerm term) {
+    public boolean rejectCacheTerm(SGDObjectiveTerm term, int pageIndex) {
         boolean allObservedAtoms = true;
         int[] variableIndexes = term.getVariableIndexes();
 
@@ -72,6 +72,9 @@ public class SGDOnlineTermStore extends OnlineTermStore<SGDObjectiveTerm> {
                 allObservedAtoms = false;
             }
         }
+
+        // There is at least one term in the page that has all non-deleted atoms.
+        validTermPages.put(activeTermPages.get(pageIndex), true);
 
         return allObservedAtoms;
     }
