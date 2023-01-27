@@ -155,6 +155,18 @@ public abstract class OnlineInference extends InferenceApplication {
     protected String doAddAtom(AddAtom action) {
         GroundAtom atom = null;
 
+        if (action.getPartitionName().equalsIgnoreCase("TRUTH")) {
+            atom = new ObservedAtom(action.getPredicate(), action.getArguments(), action.getValue());
+            if (trainingMap != null) {
+                // Todo(cad): Add atom to truth partition of TrainingMap.
+//                trainingMap.addTruthAtom(
+//                        new ObservedAtom(action.getPredicate(), action.getArguments(), action.getValue()),
+//                        ((OnlineAtomManager)atomManager).getOnlineReadPartition());
+            }
+
+            return String.format("Added atom: %s", atom);
+        }
+
         if (atomManager.getDatabase().hasAtom(action.getPredicate(), action.getArguments())) {
             atom = deleteAtom(action.getPredicate(), action.getArguments());
             ((OnlineTermStore)termStore).deleteLocalVariable(atom);
@@ -167,13 +179,6 @@ public abstract class OnlineInference extends InferenceApplication {
 
             if (trainingMap != null) {
                 trainingMap.addRandomVariableTargetAtom((RandomVariableAtom)atom);
-            }
-        } else if (action.getPartitionName().equalsIgnoreCase("TRUTH")) {
-            if (trainingMap != null) {
-                // Todo(cad): Add atom to truth partition of TrainingMap.
-//                trainingMap.addTruthAtom(
-//                        new ObservedAtom(action.getPredicate(), action.getArguments(), action.getValue()),
-//                        ((OnlineAtomManager)atomManager).getOnlineReadPartition());
             }
         } else {
             throw new IllegalArgumentException(String.format("Unrecognized partition: %s", action.getPartitionName()));

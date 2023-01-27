@@ -98,6 +98,7 @@ writeInferredPredicates
 PARTITION
     :   READ_PARTITION
     |   WRITE_PARTITION
+    |   TRUTH_PARTITION
     ;
 
 ADD_ATOM
@@ -163,6 +164,11 @@ WRITE_INFERRED_PREDICATES
 WRITE_PARTITION
     :   W R I T E
     ;
+
+TRUTH_PARTITION
+    :   T R U T H
+    ;
+
 
 fragment A : [aA]; // match either an 'a' or 'A'
 fragment B : [bB];
